@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>熔痕谱系</title>
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <header class="topbar">
+    <div>
+      <h1>熔痕谱系</h1>
+      <p id="summary">正在读取固定 fixture 与最新对齐版本。</p>
+    </div>
+    <div class="actions">
+      <button id="reload">重算</button>
+      <button id="loadFixture">重装 fixture</button>
+      <button id="reset">清空数据库</button>
+      <button id="exportRun">导出记录</button>
+      <label class="file-button">导入记录
+        <input id="importRun" type="file" accept="application/json,.json" hidden>
+      </label>
+    </div>
+  </header>
+
+  <main>
+    <section class="panel wide">
+      <div class="panel-title">
+        <h2>时线与锦标</h2>
+        <span>灰点为采样，菱形为同步锦标，红框为风险或未对齐。</span>
+      </div>
+      <svg id="timeline" viewBox="0 0 1100 260" role="img"></svg>
+    </section>
+
+    <section class="panel wide controls">
+      <h2>复核操作</h2>
+      <div class="form-grid">
+        <label>锦标 ID<input id="trophyId" value="T1"></label>
+        <button data-action="revoke">撤销锦标</button>
+        <button data-action="confirm">恢复确认锦标</button>
+        <label>会话<input id="splitSession" value="S1"></label>
+        <label>扫描器时钟<input id="splitClock" type="number" value="1000"></label>
+        <button data-action="split">在边界拆分道次</button>
+        <label>传感器起<input id="keepStart" type="number" value="7000"></label>
+        <label>传感器止（右开）<input id="keepEnd" type="number" value="8002"></label>
+        <button data-action="keep">保留为未对齐</button>
+      </div>
+      <p id="operationMessage">所有操作只追加决策；原始采样永不更新。</p>
+    </section>
+
+    <section class="panel">
+      <div class="panel-title">
+        <h2>层内路径</h2>
+        <span>实线为激光段，虚线为关激光移动。</span>
+      </div>
+      <svg id="pathMap" viewBox="0 0 530 520" role="img"></svg>
+    </section>
+
+    <section class="panel">
+      <div class="panel-title">
+        <h2>信号热带</h2>
+        <span>仅激光精确对齐样本计入段统计。</span>
+      </div>
+      <svg id="heatmap" viewBox="0 0 530 520" role="img"></svg>
+    </section>
+
+    <section class="panel wide">
+      <div class="panel-title">
+        <h2>残差、风险与缺失通道</h2>
+        <span>每次重算保留新版本和决策依据。</span>
+      </div>
+      <div class="tables">
+        <div>
+          <h3>锦标致据</h3>
+          <div id="markers"></div>
+        </div>
+        <div>
+          <h3>样本状态</h3>
+          <div id="samples"></div>
+        </div>
+        <div>
+          <h3>诊断</h3>
+          <div id="diagnostics"></div>
+        </div>
+      </div>
+    </section>
+  </main>
+  <script src="/app.js"></script>
+</body>
+</html>

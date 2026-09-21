@@ -1,0 +1,151 @@
+:root {
+  color-scheme: light;
+  font-family: Inter, "PingFang SC", "Microsoft YaHei", sans-serif;
+  background: #f5f1e8;
+  color: #25211b;
+}
+
+body {
+  margin: 0;
+}
+
+.topbar {
+  display: flex;
+  justify-content: space-between;
+  gap: 24px;
+  padding: 22px 28px;
+  background: #18352d;
+  color: #fff7e8;
+}
+
+h1, h2, h3, p {
+  margin: 0;
+}
+
+h1 {
+  font-size: 30px;
+  letter-spacing: 0.08em;
+}
+
+h2 {
+  font-size: 18px;
+}
+
+h3 {
+  font-size: 14px;
+  margin-bottom: 8px;
+}
+
+.topbar p, .panel-title span, #operationMessage {
+  color: #8fa79e;
+  font-size: 13px;
+  margin-top: 6px;
+}
+
+.actions, .form-grid {
+  display: flex;
+  align-items: end;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+button {
+  border: 0;
+  border-radius: 8px;
+  padding: 9px 13px;
+  background: #d77a35;
+  color: white;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+button:hover {
+  background: #b96122;
+}
+
+.file-button {
+  display: inline-block;
+  border-radius: 8px;
+  padding: 9px 13px;
+  background: #d77a35;
+  color: white;
+  font-weight: 700;
+  cursor: pointer;
+  font-size: 13px;
+}
+
+.file-button:hover {
+  background: #b96122;
+}
+
+main {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 18px;
+  padding: 18px 24px 32px;
+}
+
+.panel {
+  background: #fffaf0;
+  border: 1px solid #d8ccb7;
+  border-radius: 14px;
+  padding: 16px;
+  box-shadow: 0 8px 24px rgba(66, 48, 25, 0.08);
+}
+
+.wide {
+  grid-column: 1 / -1;
+}
+
+.panel-title {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 10px;
+}
+
+svg {
+  width: 100%;
+  min-height: 260px;
+}
+
+.controls label {
+  display: grid;
+  gap: 4px;
+  font-size: 12px;
+  color: #5a5143;
+}
+
+input {
+  border: 1px solid #b9aa91;
+  border-radius: 7px;
+  padding: 8px;
+  min-width: 110px;
+}
+
+.tables {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 14px;
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+
+th, td {
+  border-bottom: 1px solid #e4d8c4;
+  padding: 6px;
+  text-align: left;
+}
+
+.risk {
+  color: #a33d1f;
+  font-weight: 700;
+}
+
+.ok {
+  color: #2e6b48;
+}
