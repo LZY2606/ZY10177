@@ -1,0 +1,250 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<title>熔痕谱系</title>
+<style>
+  body { font-family: -apple-system, "PingFang SC", sans-serif; margin: 16px; background:#fafafa; color:#222; }
+  h1 { font-size: 22px; margin: 0 0 4px; }
+  h2 { font-size: 14px; margin: 14px 0 6px; color:#555; }
+  .bar { display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin:8px 0; }
+  button { padding:4px 10px; border:1px solid #bbb; background:#fff; border-radius:4px; cursor:pointer; }
+  button:hover { background:#eef; }
+  .panel { background:#fff; border:1px solid #ddd; border-radius:6px; padding:10px; margin-bottom:12px; }
+  .cols { display:flex; gap:12px; align-items:flex-start; }
+  .cols > div { flex:1; min-width:0; }
+  table { border-collapse:collapse; font-size:12px; width:100%; }
+  th, td { border:1px solid #e2e2e2; padding:3px 6px; text-align:left; }
+  th { background:#f3f3f3; }
+  .risk { color:#c2410c; } .ok { color:#15803d; } .muted { color:#888; }
+  .diag { color:#b91c1c; font-size:12px; }
+  svg { display:block; background:#fff; border:1px solid #ddd; border-radius:6px; width:100%; }
+  .tag { font-size:11px; padding:1px 6px; border-radius:8px; background:#eee; }
+  .tag.revoked { background:#fee2e2; color:#b91c1c; }
+  .tag.confirmed { background:#dcfce7; color:#15803d; }
+  .tag.proposed { background:#fef9c3; color:#a16207; }
+  input, select { font-size:12px; padding:2px 4px; }
+</style>
+</head>
+<body>
+<h1>熔痕谱系</h1>
+<div class="muted" id="subtitle">信号窗 → 构建层 / 扫描道 / 空间位置 的可追溯对齐</div>
+
+<div class="bar">
+  <button onclick="importFixture()">导入 fixture</button>
+  <button onclick="recompute()">重算对齐</button>
+  <button onclick="exportRecord()">导出运行记录</button>
+  <button onclick="resetAll()">清空数据库</button>
+  <span id="ver" class="tag"></span>
+  <span id="msg" class="muted"></span>
+</div>
+
+<div class="panel">
+  <h2>时线(对齐后参考时钟;橙=外推风险,灰=未对齐,竖线=锦标/事件)</h2>
+  <svg id="timeline" viewBox="0 0 1000 240"></svg>
+</div>
+
+<div class="cols">
+  <div class="panel">
+    <h2>层内路径(实线=激光开,灰虚线=关激光移动;点击道次选中)</h2>
+    <svg id="path" viewBox="0 0 480 360"></svg>
+    <div class="bar">
+      <span class="muted" id="selTrack">未选中道次</span>
+      <button onclick="splitSelected()">拆分选中道次</button>
+    </div>
+  </div>
+  <div class="panel">
+    <h2>熔池信号热带(按道次,仅统计激光开区间)</h2>
+    <svg id="heat" viewBox="0 0 480 360"></svg>
+  </div>
+</div>
+
+<div class="cols">
+  <div class="panel">
+    <h2>同步锦标</h2>
+    <table id="anchors"></table>
+    <h2>保留为未对齐</h2>
+    <div class="bar">
+      <select id="uaChannel"><option>meltpool</option><option>scanner</option><option>laser</option></select>
+      <input id="uaStart" type="number" step="any" placeholder="起始(原始钟)" style="width:90px">
+      <input id="uaEnd" type="number" step="any" placeholder="结束(原始钟)" style="width:90px">
+      <button onclick="markUnaligned()">标记</button>
+    </div>
+    <h2>决策日志(可重放)</h2>
+    <table id="decisions"></table>
+  </div>
+  <div class="panel">
+    <h2>对齐段与残差</h2>
+    <table id="segments"></table>
+    <h2>诊断</h2>
+    <div id="diagnostics"></div>
+    <h2>道次熔池统计(左闭右开)</h2>
+    <table id="stats"></table>
+  </div>
+</div>
+
+<script>
+let state = null, timeline = null, selectedTrack = null;
+
+async function api(path, method, body) {
+  const r = await fetch('/api' + path, {
+    method: method || 'GET',
+    headers: {'Content-Type': 'application/json'},
+    body: body ? JSON.stringify(body) : undefined
+  });
+  if (!r.ok) throw new Error(await r.text());
+  return r.json();
+}
+function say(m) { document.getElementById('msg').textContent = m; }
+
+async function refresh() {
+  state = await api('/state');
+  if (!state.imported) { say('数据库为空,请点击「导入 fixture」'); return; }
+  timeline = await api('/timeline');
+  document.getElementById('ver').textContent = '对齐版本 v' + state.currentVersion;
+  drawTimeline(); drawPath(); drawHeat(); renderTables();
+}
+
+async function importFixture() { const r = await api('/import-fixture','POST'); say('导入 '+r.samples+' 样本,版本 v'+r.version); refresh(); }
+async function recompute() { const r = await api('/recompute','POST',{}); say('重算完成,版本 v'+r.version); refresh(); }
+async function resetAll() { await api('/reset','POST'); say('数据库已清空'); refresh(); }
+async function exportRecord() {
+  const rec = await api('/export');
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([JSON.stringify(rec,null,1)],{type:'application/json'}));
+  a.download = 'run-record.json'; a.click(); say('运行记录已导出');
+}
+async function anchorAction(id, action) {
+  const r = await api('/anchors/'+id+'/'+action,'POST'); say('锦标 '+id+' '+action+',版本 v'+r.version); refresh();
+}
+async function splitSelected() {
+  if (!selectedTrack) { say('先在路径图中点击选中道次'); return; }
+  const t = (selectedTrack.t_start + selectedTrack.t_end) / 2;
+  const r = await api('/tracks/'+selectedTrack.id+'/split','POST',{t});
+  say('道次 '+selectedTrack.id+' 已在 t='+t.toFixed(2)+' 拆分,版本 v'+r.version);
+  selectedTrack = null; refresh();
+}
+async function markUnaligned() {
+  const channel = document.getElementById('uaChannel').value;
+  const tStart = parseFloat(document.getElementById('uaStart').value);
+  const tEnd = parseFloat(document.getElementById('uaEnd').value);
+  if (isNaN(tStart) || isNaN(tEnd)) { say('请输入时间范围'); return; }
+  const r = await api('/unaligned','POST',{channel,tStart,tEnd});
+  say('已保留为未对齐,版本 v'+r.version); refresh();
+}
+
+const LANES = {laser:0, meltpool:1, scanner:2};
+const LANE_NAMES = ['laser','meltpool','scanner'];
+const COLORS = {laser:'#7c3aed', meltpool:'#0284c7', scanner:'#059669'};
+
+function drawTimeline() {
+  const svg = document.getElementById('timeline');
+  const W=1000,H=240,pad=44,laneH=60;
+  const pts = timeline.samples.filter(s=>s.t_ref!=null || s.unaligned===1);
+  const refs = timeline.samples.map(s=>s.t_ref).filter(v=>v!=null);
+  if (!refs.length) { svg.innerHTML=''; return; }
+  const lo=Math.min(...refs,0), hi=Math.max(...refs,1);
+  const X=t=>pad+(t-lo)/(hi-lo)*(W-2*pad);
+  const Y=c=>20+LANES[c]*laneH+laneH/2;
+  let h='';
+  LANE_NAMES.forEach(c=>{ h+=`<text x="6" y="${Y(c)+4}" font-size="11" fill="${COLORS[c]}">${c}</text>`;
+    h+=`<line x1="${pad}" y1="${Y(c)}" x2="${W-pad}" y2="${Y(c)}" stroke="#eee"/>`; });
+  state.tracks.forEach(tr=>{
+    h+=`<rect x="${X(tr.t_start)}" y="14" width="${Math.max(1,X(tr.t_end)-X(tr.t_start))}" height="${H-24}"
+        fill="${tr.laser_on? '#f0f9ff':'#f5f5f5'}" stroke="none"/>`; });
+  state.events.forEach(e=>{
+    h+=`<line x1="${X(e.t)}" y1="10" x2="${X(e.t)}" y2="${H-10}" stroke="#dc2626" stroke-dasharray="4 3"/>
+        <text x="${X(e.t)+3}" y="18" font-size="10" fill="#dc2626">${e.code}</text>`; });
+  state.anchors.filter(a=>a.status!=='revoked').forEach(a=>{
+    h+=`<line x1="${X(a.t_ref)}" y1="10" x2="${X(a.t_ref)}" y2="${H-10}" stroke="#ca8a04" stroke-width="1.5"/>`; });
+  timeline.samples.forEach(s=>{
+    if (s.unaligned===1 || s.t_ref==null) {
+      if (s.channel in LANES) h+=`<circle cx="${X(lo)}" cy="${Y(s.channel)+16}" r="2" fill="#bbb"/>`;
+      return;
+    }
+    const col = s.risk? '#ea580c' : COLORS[s.channel];
+    h+=`<circle cx="${X(s.t_ref)}" cy="${Y(s.channel)+(s.channel==='scanner'? (s.v2%18)-9 : (s.v%18)-9)}" r="2" fill="${col}"/>`;
+  });
+  svg.innerHTML=h;
+}
+
+function drawPath() {
+  const svg=document.getElementById('path');
+  const W=480,H=360,pad=30;
+  const sc = timeline.samples.filter(s=>s.channel==='scanner'&&s.t_ref!=null&&s.unaligned!==1);
+  const xs=sc.map(s=>s.v), ys=sc.map(s=>s.v2);
+  const xlo=Math.min(...xs,-5),xhi=Math.max(...xs,65),ylo=Math.min(...ys,-5),yhi=Math.max(...ys,60);
+  const X=x=>pad+(x-xlo)/(xhi-xlo)*(W-2*pad), Y=y=>H-pad-(y-ylo)/(yhi-ylo)*(H-2*pad);
+  let h='';
+  state.tracks.forEach(tr=>{
+    const sel = selectedTrack && selectedTrack.id===tr.id;
+    h+=`<line x1="${X(tr.x1)}" y1="${Y(tr.y1)}" x2="${X(tr.x2)}" y2="${Y(tr.y2)}"
+        stroke="${tr.laser_on? (sel?'#dc2626':'#2563eb') : '#999'}"
+        stroke-width="${sel?5:(tr.laser_on?3:2)}" stroke-dasharray="${tr.laser_on?'':'5 4'}"
+        style="cursor:pointer" data-track="${tr.id}"/>`;
+  });
+  sc.forEach(s=>{
+    h+=`<circle cx="${X(s.v)}" cy="${Y(s.v2)}" r="1.6" fill="${s.risk?'#ea580c':'#059669'}"/>`;
+  });
+  svg.innerHTML=h;
+  svg.querySelectorAll('[data-track]').forEach(el=>el.addEventListener('click',()=>{
+    const id=+el.getAttribute('data-track');
+    selectedTrack = state.tracks.find(t=>t.id===id);
+    document.getElementById('selTrack').textContent =
+      '选中道次 #'+selectedTrack.id+' (seq '+selectedTrack.seq+', ['+selectedTrack.t_start+','+selectedTrack.t_end+'))';
+    drawPath();
+  }));
+}
+
+function drawHeat() {
+  const svg=document.getElementById('heat');
+  const W=480,H=360,pad=30;
+  const laserTracks = state.tracks.filter(t=>t.laser_on);
+  const mp = timeline.samples.filter(s=>s.channel==='meltpool'&&s.t_ref!=null&&s.unaligned!==1);
+  const vals=mp.map(s=>s.v), vlo=Math.min(...vals), vhi=Math.max(...vals);
+  const rows=laserTracks.length, rh=(H-2*pad)/Math.max(rows,1);
+  let h='';
+  laserTracks.forEach((tr,i)=>{
+    const y=pad+i*rh;
+    h+=`<text x="4" y="${y+rh/2+3}" font-size="10" fill="#555">T${tr.seq}</text>`;
+    h+=`<rect x="${pad}" y="${y}" width="${W-2*pad}" height="${rh-2}" fill="#f8f8f8" stroke="#eee"/>`;
+    mp.filter(s=>s.t_ref>=tr.t_start&&s.t_ref<tr.t_end).forEach(s=>{
+      const f=(s.t_ref-tr.t_start)/(tr.t_end-tr.t_start);
+      const x=pad+f*(W-2*pad);
+      const inten=(s.v-vlo)/(vhi-vlo||1);
+      const col=s.risk? '#ea580c' : `rgb(${Math.round(255*inten)},40,${Math.round(255*(1-inten))})`;
+      h+=`<rect x="${x-2}" y="${y+1}" width="4" height="${rh-4}" fill="${col}"/>`;
+    });
+  });
+  svg.innerHTML=h;
+}
+
+function renderTables() {
+  document.getElementById('anchors').innerHTML =
+    '<tr><th>id</th><th>对</th><th>通道</th><th>epoch</th><th>通道钟</th><th>参考钟</th><th>状态</th><th>依据</th><th></th></tr>'+
+    state.anchors.map(a=>`<tr><td>${a.id}</td><td>${a.pair}</td><td>${a.channel}</td><td>${a.epoch}</td>
+      <td>${a.t_channel}</td><td>${a.t_ref}</td>
+      <td><span class="tag ${a.status}">${a.status}</span></td><td class="muted">${a.basis}</td>
+      <td><button onclick="anchorAction(${a.id},'confirm')">确认</button>
+          <button onclick="anchorAction(${a.id},'revoke')">撤销</button></td></tr>`).join('');
+  document.getElementById('decisions').innerHTML =
+    '<tr><th>id</th><th>类型</th><th>参数</th></tr>'+
+    state.decisions.map(d=>`<tr><td>${d.id}</td><td>${d.type}</td><td class="muted">${d.payload}</td></tr>`).join('');
+  document.getElementById('segments').innerHTML =
+    '<tr><th>通道</th><th>epoch</th><th>斜率</th><th>偏移</th><th>残差RMS</th><th>锦标数</th><th>依据</th></tr>'+
+    state.segments.map(s=>`<tr><td>${s.channel}</td><td>${s.epoch}</td>
+      <td>${(+s.slope).toFixed(6)}</td><td>${(+s.offset).toFixed(4)}</td>
+      <td>${(+s.residual_rms).toFixed(6)}</td><td>${s.anchor_count}</td><td class="muted">${s.basis}</td></tr>`).join('');
+  document.getElementById('diagnostics').innerHTML = state.diagnostics.length
+    ? state.diagnostics.map(d=>`<div class="diag">[${d.kind}] ${d.message}</div>`).join('')
+    : '<div class="ok">无诊断</div>';
+  document.getElementById('stats').innerHTML =
+    '<tr><th>道次</th><th>区间</th><th>样本数</th><th>均值</th></tr>'+
+    state.trackStats.map(s=>`<tr><td>T${s.seq}</td><td>[${s.t_start}, ${s.t_end})</td>
+      <td>${s.n}</td><td>${s.mean==null?'-':(+s.mean).toFixed(2)}</td></tr>`).join('');
+}
+
+refresh();
+</script>
+</body>
+</html>
